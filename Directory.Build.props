@@ -7,7 +7,7 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <!-- ReadyToRun: JIT コンパイル時間を削減して起動を高速化 -->
     <PublishReadyToRun>true</PublishReadyToRun>
     <!-- NuGet 依存のサプライチェーン保護: lockfile (packages.lock.json) を生成・検証する -->

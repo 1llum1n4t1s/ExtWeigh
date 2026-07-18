@@ -59,4 +59,4 @@ dotnet test src/ExtWeigh.Tests -c Debug --filter "TestCategory=Integration"    #
 - ログイン必須ページの計測は未対応（cxcx の session 機能相当は将来課題。実装するなら「専用プロファイルに一度手動ログイン → コピーして使い回す」方式）
 - Chrome 137+ の branded ビルドで `--load-extension` が無視される環境がある。その場合は設定タブで Chrome for Testing を指定してもらう（README のトラブルシュート参照）
 - flamegraph の埋め込み（speedscope vendor 同梱）は未実装。`.cpuprofile` を DevTools / speedscope.app で開く運用
-- Velopack 自動更新・コード署名リリースは未組み込み（導入時は RealTimeTranslator の `scripts/release-local.ps1` + vava.config.json 方式に合わせる）
+- Velopack の起動フックと Certum SimplySign によるローカルコード署名リリースを導入済み。`scripts/release-local.ps1` と `vava.config.json` が `win-x64` の署名付き Setup.exe / Portable ZIP を生成する。自動更新の配信先は未設定

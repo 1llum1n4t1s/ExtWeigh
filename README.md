@@ -4,6 +4,8 @@
 
 ExtWeigh は、Chrome 拡張機能がブラウジングをどれだけ重くしているかを数値で示すツールです。単体拡張は ON / OFF、複数拡張は全 OFF・全 ON・1 つずつ OFF の条件で自動計測し、Chrome DevTools Protocol (CDP) 経由で V8 CPU プロファイル・Chrome trace・各種メトリクスを収集して差分レポートを生成します。
 
+Windows 配布物（Setup.exe / Portable ZIP）は Authenticode 署名済みで、発行者とファイルの整合性を確認できます。
+
 ## 主な機能
 
 - 📊 **ON/OFF 差分計測** — CPU 時間・Long Tasks・JS ヒープを拡張あり / なしで比較

@@ -1,5 +1,6 @@
 using Avalonia;
 using ExtWeigh.Core.Logging;
+using Velopack;
 
 namespace ExtWeigh.UI;
 
@@ -11,6 +12,9 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        // インストール・更新・アンインストール時の Velopack フックを UI 起動前に処理する。
+        VelopackApp.Build().Run();
+
         _singleInstanceMutex = new Mutex(initiallyOwned: true, @"Local\ExtWeigh_SingleInstance", out var createdNew);
         if (!createdNew)
         {
