@@ -194,6 +194,7 @@ foreach ($runtime in $Runtimes) {
             --packTitle 'ExtWeigh' `
             --packAuthors '1llum1n4t1s' `
             --mainExe 'ExtWeigh.UI.exe' `
+            --icon (Join-Path 'icon' 'app.ico') `
             --packDir $publishDir `
             --outputDir $ArtifactsDir `
             --channel $config.Channel `

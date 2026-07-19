@@ -5,6 +5,7 @@
         x:Class="ExtWeigh.UI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="ExtWeigh — Chrome 拡張オーバーヘッド計測"
+        Icon="avares://ExtWeigh.UI/Assets/app.ico"
         Width="1150" Height="800"
         MinWidth="960" MinHeight="640"
         Background="Transparent"

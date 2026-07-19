@@ -1,4 +1,8 @@
-# ⚖️ ExtWeigh
+<p align="center">
+  <img src="icon/app_icon.png" alt="ExtWeigh アイコン" width="128">
+</p>
+
+# ExtWeigh
 
 **Chrome 拡張機能のオーバーヘッドを「全 ON / 全 OFF / 1 つ抜き」の差分で計測する Windows デスクトップアプリ**
 

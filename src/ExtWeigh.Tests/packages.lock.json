@@ -400,7 +400,7 @@
           "Avalonia.Fonts.Inter": "[12.1.0, )",
           "Avalonia.Themes.Fluent": "[12.1.0, )",
           "CommunityToolkit.Mvvm": "[8.4.2, )",
-          "ExtWeigh.Core": "[1.0.2, )",
+          "ExtWeigh.Core": "[1.0.3, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.10, )",
           "Velopack": "[1.2.0, )"
         }

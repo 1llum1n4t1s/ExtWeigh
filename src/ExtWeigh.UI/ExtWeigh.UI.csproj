@@ -4,6 +4,7 @@
     <OutputType>WinExe</OutputType>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <ApplicationIcon>..\..\icon\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,6 +19,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ExtWeigh.Core\ExtWeigh.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 実行ファイル用アイコンとは別に、Avalonia のウィンドウから参照できるよう埋め込む。 -->
+    <AvaloniaResource Include="..\..\icon\app.ico" Link="Assets\app.ico" />
   </ItemGroup>
 
 </Project>
