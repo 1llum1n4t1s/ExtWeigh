@@ -1,28 +1,59 @@
-# PR / push ごとのビルド + ユニットテスト（統合テストは実 Chrome が必要なため除外）
-name: CI
+name: Continuous Integration
 
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-test:
+    name: Build & Unit Test
     runs-on: windows-2022
     steps:
-      - name: チェックアウト
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
-      - name: .NET SDK セットアップ
-        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+      - name: .NET SDK をセットアップ
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.x
 
+      - name: NuGet パッケージをキャッシュ
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Build.props', '**/packages.lock.json') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
       - name: 復元
-        run: dotnet restore ExtWeigh.slnx -r win-x64 -p:Configuration=Release
+        run: dotnet restore ExtWeigh.slnx -r win-x64 -p:Configuration=Release --locked-mode
 
       - name: ビルド
         run: dotnet build ExtWeigh.slnx -c Release --no-restore
 
       - name: ユニットテスト
-        run: dotnet test src/ExtWeigh.Tests -c Release --no-build --filter "TestCategory!=Integration"
+        run: >-
+          dotnet test src/ExtWeigh.Tests
+          -c Release
+          --no-build
+          --filter "TestCategory!=Integration"
+          --logger "trx;LogFileName=test-results.trx"
+
+      - name: テスト結果をアップロード
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: test-results
+          path: '**/TestResults/*.trx'
+          retention-days: 3

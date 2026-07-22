@@ -1,17 +1,25 @@
 using Avalonia;
 using ExtWeigh.Core.Logging;
+using System.Runtime.InteropServices;
 using Velopack;
 
 namespace ExtWeigh.UI;
 
 internal static class Program
 {
+    private const string AppUserModelId = "velopack.ExtWeigh";
+
     /// <summary>単一インスタンス制御用 Mutex（GC 回収防止のため static 保持）</summary>
     private static Mutex? _singleInstanceMutex;
 
     [STAThread]
     public static void Main(string[] args)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            TrySetCurrentProcessAppUserModelId();
+        }
+
         // インストール・更新・アンインストール時の Velopack フックを UI 起動前に処理する。
         VelopackApp.Build().Run();
 
@@ -44,4 +52,13 @@ internal static class Program
             .UsePlatformDetect()
             .WithInterFont()
             .LogToTrace();
+
+    private static void TrySetCurrentProcessAppUserModelId()
+    {
+        try { _ = SetCurrentProcessExplicitAppUserModelID(AppUserModelId); }
+        catch { /* シェル連携の失敗だけで起動を止めない */ }
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
 }

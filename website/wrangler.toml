@@ -1,0 +1,15 @@
+# ExtWeigh のランディングページ配信 Worker。
+# extweigh.nephilim.jp は R2 bucket extweigh-updates のカスタムドメイン。
+# Worker Route が同じホスト名の前段で LP と静的素材を返し、それ以外は R2 へ委譲する。
+name = "extweigh-landing"
+main = "worker.js"
+compatibility_date = "2026-07-21"
+
+routes = [
+  { pattern = "extweigh.nephilim.jp/*", zone_name = "nephilim.jp" },
+]
+
+[[rules]]
+type = "Text"
+globs = ["**/*.html", "**/*.css", "**/script.js", "**/*.txt", "**/*.xml"]
+fallthrough = false

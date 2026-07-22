@@ -1,24 +1,36 @@
-# release-local.ps1 — ローカル署名付き Velopack パッケージ作成
+# release-local.ps1 — ローカル署名付き Velopack リリース
 #
 # Certum SimplySign は Desktop 接続とスマホトークンの承認が必要なため、
 # GitHub Actions ではなくこのスクリプトからローカル署名する。
+# 生成した成果物は Cloudflare R2 にアップロードし、更新 manifest は最後に公開する。
 #
 # 前提:
 #   - SimplySign Desktop が接続済みで、署名証明書が CurrentUser\My に見えていること
 #   - Directory.Build.props の <Version> が配布したいバージョンになっていること
+#   - Cloudflare 側に extweigh-updates bucket と extweigh.nephilim.jp が準備済みであること
+#   - C:\Users\IMT\dev\Secret\secrets.json に cloudflare.api_token があること
 #
 # 使い方:
 #   pwsh scripts/release-local.ps1
+#   pwsh scripts/release-local.ps1 -SkipUpload
+#   pwsh scripts/release-local.ps1 -Cleanup
 #   pwsh scripts/release-local.ps1 -Runtimes win-x64
 
 [CmdletBinding()]
 param(
+    [switch]$SkipUpload,
+    [switch]$Cleanup,
     [string[]]$Runtimes = @('win-x64')
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+$WranglerVersion = '4.112.0'
+$Bucket = 'extweigh-updates'
+$BaseUrl = 'https://extweigh.nephilim.jp'
+$AccountId = '10901bfadbf1005164774a7350082985'
+$SecretsPath = 'C:\Users\IMT\dev\Secret\secrets.json'
 $CertSubjectName = 'Open Source Developer Yuichiro Shinozaki'
 $TimestampUrl = 'http://time.certum.pl'
 $SignParams = "/n `"$CertSubjectName`" /fd SHA256 /td SHA256 /tr $TimestampUrl"
@@ -103,9 +115,38 @@ function Test-ArchiveEntrySignature {
     }
 }
 
+function Send-R2Object {
+    param([Parameter(Mandatory)][System.IO.FileInfo]$File)
+
+    Write-Host "  ↑ $($File.Name)"
+    Invoke-Native "R2 put ($($File.Name))" {
+        pnpm dlx "wrangler@$WranglerVersion" r2 object put "$Bucket/$($File.Name)" --file $File.FullName --remote
+    }
+}
+
+function Test-PublishedObject {
+    param(
+        [Parameter(Mandatory)][System.IO.FileInfo]$File,
+        [Parameter(Mandatory)][string]$CacheKey
+    )
+
+    $encodedName = [uri]::EscapeDataString($File.Name)
+    $url = "$BaseUrl/$encodedName`?release=$CacheKey"
+    $response = Invoke-WebRequest -Uri $url -Method Head -TimeoutSec 30 -MaximumRetryCount 3 -RetryIntervalSec 5
+    if ($response.StatusCode -ne 200) {
+        throw "配信確認失敗: $url → HTTP $($response.StatusCode)"
+    }
+
+    $contentLength = $response.Headers['Content-Length']
+    if ($contentLength -and [long]$contentLength -ne $File.Length) {
+        throw "配信サイズ不一致: $($File.Name) (local=$($File.Length), remote=$contentLength)"
+    }
+
+    Write-Host "  ✅ $($File.Name): HTTP 200 ($($File.Length) bytes)"
+}
+
 Write-Host '== プリフライト ==' -ForegroundColor Cyan
 
-# Git Bash (MSYS) 経由でも VS の探索を安定させる。
 if (-not ${env:ProgramFiles(x86)}) {
     ${env:ProgramFiles(x86)} = 'C:\Program Files (x86)'
 }
@@ -115,7 +156,6 @@ if ($env:PATH -notlike "*$vsInstallerDir*") {
     $env:PATH = "$env:PATH;$vsInstallerDir"
 }
 
-# vpk が要求するランタイムをインストール済みの新しい SDK へロールフォワードする。
 $env:DOTNET_ROLL_FORWARD = 'Major'
 
 $versionNode = ([xml](Get-Content -LiteralPath 'Directory.Build.props' -Raw)).SelectSingleNode('/Project/PropertyGroup/Version')
@@ -152,23 +192,68 @@ $installedVpkVersion = if ($vpkToolLine) {
 
 if (-not $installedVpkVersion) {
     Invoke-Native 'vpk のインストール' { dotnet tool install --global vpk --version $vpkVersion }
-} else {
-    if ($installedVpkVersion -ne $vpkVersion) {
-        Invoke-Native 'vpk の更新' { dotnet tool update --global vpk --version $vpkVersion }
+}
+elseif ($installedVpkVersion -ne $vpkVersion) {
+    Invoke-Native 'vpk の更新' { dotnet tool update --global vpk --version $vpkVersion }
+}
+
+foreach ($runtime in $Runtimes) {
+    if (-not $RuntimeMatrix.ContainsKey($runtime)) {
+        throw "未知の runtime: $runtime"
     }
+}
+
+$cloudflareHeaders = $null
+$zoneId = $null
+if (-not $SkipUpload) {
+    if (-not (Test-Path -LiteralPath $SecretsPath)) {
+        throw "Cloudflare 認証情報が見つかりません: $SecretsPath"
+    }
+
+    $secrets = Get-Content -LiteralPath $SecretsPath -Raw | ConvertFrom-Json
+    if (-not $secrets.cloudflare.api_token) {
+        throw 'secrets.json に cloudflare.api_token が見つかりません'
+    }
+
+    $env:CLOUDFLARE_API_TOKEN = $secrets.cloudflare.api_token
+    $env:CLOUDFLARE_ACCOUNT_ID = $AccountId
+    $cloudflareHeaders = @{ Authorization = "Bearer $($env:CLOUDFLARE_API_TOKEN)" }
+
+    # upload 前に bucket と zone 権限を確認し、途中まで公開された状態を防ぐ。
+    $bucketResponse = Invoke-RestMethod -Uri "https://api.cloudflare.com/client/v4/accounts/$AccountId/r2/buckets/$Bucket" `
+        -Headers $cloudflareHeaders -TimeoutSec 30
+    if (-not $bucketResponse.success) {
+        throw "Cloudflare R2 bucket '$Bucket' を確認できませんでした"
+    }
+
+    $zoneName = ([uri]$BaseUrl).Host -replace '^[^.]+\.', ''
+    $zoneResponse = Invoke-RestMethod -Uri "https://api.cloudflare.com/client/v4/zones?name=$zoneName" `
+        -Headers $cloudflareHeaders -TimeoutSec 30
+    if (-not $zoneResponse.success -or @($zoneResponse.result).Count -eq 0) {
+        throw "Cloudflare zone '$zoneName' を確認できませんでした"
+    }
+    $zoneId = $zoneResponse.result[0].id
+
+    try {
+        [void][System.Net.Dns]::GetHostAddresses(([uri]$BaseUrl).Host)
+    }
+    catch {
+        throw "配信ドメインが DNS 解決できません: $BaseUrl"
+    }
+}
+
+if ($Cleanup -and $SkipUpload) {
+    throw '-Cleanup は R2 へ接続するため、-SkipUpload と同時には指定できません'
 }
 
 if (Test-Path -LiteralPath $WorkDir) {
     Remove-Item -LiteralPath $WorkDir -Recurse -Force
 }
 New-Item -ItemType Directory -Path $ArtifactsDir -Force | Out-Null
+New-Item -ItemType Directory -Path $SignatureVerificationDir -Force | Out-Null
 
 foreach ($runtime in $Runtimes) {
     $config = $RuntimeMatrix[$runtime]
-    if (-not $config) {
-        throw "未知の runtime: $runtime"
-    }
-
     $publishDir = Join-Path $WorkDir "publish-$runtime"
     $mainExe = Join-Path $publishDir 'ExtWeigh.UI.exe'
 
@@ -204,28 +289,159 @@ foreach ($runtime in $Runtimes) {
     }
 
     Write-Host "== 署名検証: $runtime ==" -ForegroundColor Cyan
-    New-Item -ItemType Directory -Path $SignatureVerificationDir -Force | Out-Null
     $fullPackage = Join-Path $ArtifactsDir "ExtWeigh-$Version-$($config.Channel)-full.nupkg"
     $portablePackage = Join-Path $ArtifactsDir "ExtWeigh-$($config.Channel)-Portable.zip"
-    if (-not (Test-Path -LiteralPath $fullPackage) -or -not (Test-Path -LiteralPath $portablePackage)) {
+    $setupPackage = Join-Path $ArtifactsDir "ExtWeigh-$($config.Channel)-Setup.exe"
+    if (-not (Test-Path -LiteralPath $fullPackage) -or
+        -not (Test-Path -LiteralPath $portablePackage) -or
+        -not (Test-Path -LiteralPath $setupPackage)) {
         throw "配布パッケージが生成されませんでした ($runtime)"
     }
 
     Test-ArchiveEntrySignature -ArchivePath $fullPackage -EntryPath 'lib/app/ExtWeigh.UI.exe' -Label 'フルパッケージ'
     Test-ArchiveEntrySignature -ArchivePath $portablePackage -EntryPath 'current/ExtWeigh.UI.exe' -Label 'Portable パッケージ'
+    Test-Signature -Path $setupPackage
+
+    # Microsoft Store の MSI/EXE 申請は、内容が変わらないバージョン付き URL が必須。
+    $storeInstaller = Join-Path $ArtifactsDir "ExtWeigh-$Version-$($config.Channel)-Setup.exe"
+    Copy-Item -LiteralPath $setupPackage -Destination $storeInstaller
+    Test-Signature -Path $storeInstaller
 }
 
-$artifactExecutables = @(Get-ChildItem -LiteralPath $ArtifactsDir -Filter '*.exe' -File)
-if ($artifactExecutables.Count -eq 0) {
-    throw '署名検証対象の Setup.exe が生成されませんでした'
+$manifestFiles = @(Get-ChildItem -LiteralPath $ArtifactsDir -Filter 'releases.*.json' -File)
+if ($manifestFiles.Count -ne $Runtimes.Count) {
+    throw "manifest 数が runtime 数と一致しません (manifest=$($manifestFiles.Count), runtime=$($Runtimes.Count))"
 }
 
-Write-Host '== 署名検証: インストーラー ==' -ForegroundColor Cyan
-foreach ($executable in $artifactExecutables) {
-    Test-Signature -Path $executable.FullName
+foreach ($manifest in $manifestFiles) {
+    $manifestData = Get-Content -LiteralPath $manifest.FullName -Raw | ConvertFrom-Json
+    foreach ($asset in @($manifestData.Assets)) {
+        if (-not $asset.FileName) {
+            throw "manifest に FileName のない asset があります: $($manifest.Name)"
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $ArtifactsDir $asset.FileName))) {
+            throw "manifest 参照パッケージが artifacts にありません: $($asset.FileName)"
+        }
+    }
 }
 
-Write-Host "`n✅ 署名付きパッケージを作成しました: $ArtifactsDir" -ForegroundColor Green
-Get-ChildItem -LiteralPath $ArtifactsDir -File |
-    Select-Object Name, @{ Name = 'Size(MB)'; Expression = { [math]::Round($_.Length / 1MB, 1) } } |
-    Format-Table -AutoSize
+if ($SkipUpload) {
+    Write-Host "`n✅ -SkipUpload 指定のため公開せず終了します: $ArtifactsDir" -ForegroundColor Green
+    Get-ChildItem -LiteralPath $ArtifactsDir -File |
+        Select-Object Name, @{ Name = 'Size(MB)'; Expression = { [math]::Round($_.Length / 1MB, 1) } } |
+        Format-Table -AutoSize
+    return
+}
+
+# manifest を先に公開すると、クライアントが未到達の package を参照し得る。
+# package と固定成果物を先に upload・検証し、manifest は最後に公開する。
+$payloadFiles = @(Get-ChildItem -LiteralPath $ArtifactsDir -File |
+    Where-Object { $_.Name -notlike 'releases.*.json' } |
+    Sort-Object Name)
+if ($payloadFiles.Count -eq 0) {
+    throw 'R2 へアップロードする成果物がありません'
+}
+
+Write-Host '== R2 アップロード: package / 固定成果物 ==' -ForegroundColor Cyan
+foreach ($file in $payloadFiles) {
+    Send-R2Object -File $file
+}
+
+Write-Host '== 配信確認: manifest 公開前 ==' -ForegroundColor Cyan
+foreach ($file in $payloadFiles) {
+    Test-PublishedObject -File $file -CacheKey "$Version-pre-manifest"
+}
+
+Write-Host '== R2 アップロード: manifest ==' -ForegroundColor Cyan
+foreach ($manifest in $manifestFiles | Sort-Object Name) {
+    Send-R2Object -File $manifest
+}
+
+# 固定 URL の Setup / Portable / manifest が旧キャッシュを返さないよう purge する。
+Write-Host '== Cloudflare キャッシュパージ ==' -ForegroundColor Cyan
+$purgeFiles = @(Get-ChildItem -LiteralPath $ArtifactsDir -File | Where-Object {
+    $_.Name -notlike '*.nupkg' -and $_.Name -notmatch "^ExtWeigh-$([regex]::Escape($Version))-.*-Setup\.exe$"
+})
+$purgeUrls = @($purgeFiles | ForEach-Object { "$BaseUrl/$([uri]::EscapeDataString($_.Name))" })
+if ($purgeUrls.Count -gt 0) {
+    try {
+        for ($offset = 0; $offset -lt $purgeUrls.Count; $offset += 30) {
+            $last = [math]::Min($offset + 29, $purgeUrls.Count - 1)
+            $batch = @($purgeUrls[$offset..$last])
+            $body = @{ files = $batch } | ConvertTo-Json -Depth 3 -Compress
+            $purgeResponse = Invoke-RestMethod -Method Post `
+                -Uri "https://api.cloudflare.com/client/v4/zones/$zoneId/purge_cache" `
+                -Headers $cloudflareHeaders -ContentType 'application/json' -Body $body -TimeoutSec 30
+            if (-not $purgeResponse.success) {
+                throw ($purgeResponse.errors | ConvertTo-Json -Compress)
+            }
+        }
+        Write-Host "  ✅ $($purgeUrls.Count) URL"
+    }
+    catch {
+        Write-Warning "R2 アップロードは完了しましたが、キャッシュパージに失敗しました: $($_.Exception.Message)"
+    }
+}
+
+Write-Host '== 配信確認: manifest 公開後 ==' -ForegroundColor Cyan
+foreach ($file in @($payloadFiles) + @($manifestFiles)) {
+    Test-PublishedObject -File $file -CacheKey "$Version-final"
+}
+
+if ($Cleanup) {
+    if ($Runtimes.Count -ne $RuntimeMatrix.Count) {
+        throw '-Cleanup は全 runtime の manifest を生成した実行でのみ使用できます'
+    }
+
+    Write-Host '== manifest 外 nupkg クリーンアップ ==' -ForegroundColor Cyan
+    $keep = @{}
+    foreach ($manifest in $manifestFiles) {
+        $manifestData = Get-Content -LiteralPath $manifest.FullName -Raw | ConvertFrom-Json
+        foreach ($asset in @($manifestData.Assets)) {
+            if ($asset.FileName -like '*.nupkg') {
+                $keep[$asset.FileName] = $true
+            }
+        }
+    }
+    if ($keep.Count -eq 0) {
+        throw '保持対象 nupkg が空のため cleanup を中止します'
+    }
+
+    $api = "https://api.cloudflare.com/client/v4/accounts/$AccountId/r2/buckets/$Bucket"
+    $allKeys = [System.Collections.Generic.List[string]]::new()
+    $cursor = ''
+    while ($true) {
+        $uri = "$api/objects?per_page=1000" + $(if ($cursor) { "&cursor=$cursor" })
+        $response = Invoke-RestMethod -Uri $uri -Headers $cloudflareHeaders -TimeoutSec 30
+        foreach ($object in @($response.result)) {
+            $allKeys.Add($object.key)
+        }
+
+        $info = $response.PSObject.Properties['result_info']
+        if (-not $info -or -not $info.Value) { break }
+        $isTruncated = $info.Value.PSObject.Properties['is_truncated']
+        if (-not $isTruncated -or -not $isTruncated.Value) { break }
+        $cursorProperty = $info.Value.PSObject.Properties['cursor']
+        $cursor = if ($cursorProperty) { $cursorProperty.Value } else { '' }
+        if (-not $cursor) { break }
+    }
+
+    $deleteCandidates = @($allKeys | Where-Object { $_ -like '*.nupkg' -and -not $keep.ContainsKey($_) })
+    if ($deleteCandidates.Count -eq 0) {
+        Write-Host '  ✅ 削除対象なし'
+    }
+    else {
+        Write-Host "  削除対象: $($deleteCandidates.Count) 件"
+        foreach ($key in $deleteCandidates) {
+            $encodedKey = [uri]::EscapeDataString($key)
+            Invoke-RestMethod -Method Delete -Uri "$api/objects/$encodedKey" -Headers $cloudflareHeaders -TimeoutSec 30 | Out-Null
+            Write-Host "  🗑️  $key"
+        }
+    }
+}
+else {
+    Write-Host '== cleanup ==' -ForegroundColor Cyan
+    Write-Host '  省略（必要なリリースで -Cleanup を明示してください）'
+}
+
+Write-Host "`n🎉 リリース完了: v$Version → $BaseUrl" -ForegroundColor Green
