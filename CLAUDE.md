@@ -1,4 +1,4 @@
-# AGENTS.md — ExtWeigh 開発ガイド（LLM / 開発者向け）
+# CLAUDE.md — ExtWeigh 開発ガイド（LLM / 開発者向け）
 
 Chrome 拡張機能のオーバーヘッドを ON/OFF 差分で計測する Avalonia デスクトップアプリ。cxcx スキル（Playwright + CDP による拡張計測）のパイプラインを、Playwright に依存しない自前 CDP クライアントでアプリ化したもの。
 
