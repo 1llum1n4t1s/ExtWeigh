@@ -1,4 +1,4 @@
-// extweigh.nephilim.jp のランディングページ配信 Worker。
+// extweigh.kagayoi.com のランディングページ配信 Worker。
 // LP と付属静的素材だけを Worker が返し、Velopack / Store 配布物は同一ホスト名の
 // R2 Custom Domain へ fetch(request) でそのまま委譲する。
 import landingHtml from "./index.html";

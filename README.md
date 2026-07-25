@@ -12,9 +12,9 @@ Windows 配布物（Setup.exe / Portable ZIP）は Authenticode 署名済みで�
 
 ## ダウンロード
 
-- [Windows x64 インストーラー](https://extweigh.nephilim.jp/ExtWeigh-win-x64-Setup.exe)
-- [Windows x64 Portable ZIP](https://extweigh.nephilim.jp/ExtWeigh-win-x64-Portable.zip)
-- [製品ページ](https://extweigh.nephilim.jp/)
+- [Windows x64 インストーラー](https://extweigh.kagayoi.com/ExtWeigh-win-x64-Setup.exe)
+- [Windows x64 Portable ZIP](https://extweigh.kagayoi.com/ExtWeigh-win-x64-Portable.zip)
+- [製品ページ](https://extweigh.kagayoi.com/)
 
 インストーラーはユーザー単位で導入され、管理者権限を必要としません。配布物はCloudflare R2からHTTPSで提供します。
 

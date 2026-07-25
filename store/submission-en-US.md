@@ -12,7 +12,7 @@
 
 - Short and full descriptions: `store/listing-en-US.md`
 - Support URL: `https://github.com/1llum1n4t1s/ExtWeigh/issues`
-- Privacy policy: `https://extweigh.nephilim.jp/privacy`
+- Privacy policy: `https://extweigh.kagayoi.com/privacy`
 - Applicable license terms: `https://github.com/1llum1n4t1s/ExtWeigh/blob/main/LICENSE`
 - 1:1 Store logo: `icon/app_icon.png`
 
@@ -21,7 +21,7 @@
 - App type: `EXE`
 - Architecture: `x64`
 - Installer parameters: `--silent`
-- Package URL: `https://extweigh.nephilim.jp/ExtWeigh-<VERSION>-win-x64-Setup.exe`
+- Package URL: `https://extweigh.kagayoi.com/ExtWeigh-<VERSION>-win-x64-Setup.exe`
 - Google Chrome: External dependency; auto-detected, with a configurable Chrome for Testing path
 - Non-Microsoft drivers or NT services: `None`
 - Bundleware: `None`

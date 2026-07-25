@@ -7,7 +7,7 @@ ExtWeighの利用者に影響する変更を記録します。
 ### 追加
 
 - Cloudflare R2へ署名済み配布物を安全な順序で公開するローカルリリース経路
-- `extweigh.nephilim.jp` でランディングページと配布物を共存させるCloudflare Worker設定
+- `extweigh.kagayoi.com` でランディングページと配布物を共存させるCloudflare Worker設定
 - Microsoft Store申請用の日本語・英語掲載文、申請チェックリスト、プライバシーポリシー
 - CI、CodeQL、Dependabot、ランディングページ公開のGitHub Actions
 

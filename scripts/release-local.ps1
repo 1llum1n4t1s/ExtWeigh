@@ -7,7 +7,7 @@
 # 前提:
 #   - SimplySign Desktop が接続済みで、署名証明書が CurrentUser\My に見えていること
 #   - Directory.Build.props の <Version> が配布したいバージョンになっていること
-#   - Cloudflare 側に extweigh-updates bucket と extweigh.nephilim.jp が準備済みであること
+#   - Cloudflare 側に extweigh-updates bucket と extweigh.kagayoi.com が準備済みであること
 #   - C:\Users\IMT\dev\Secret\secrets.json に cloudflare.api_token があること
 #
 # 使い方:
@@ -28,7 +28,7 @@ Set-StrictMode -Version Latest
 
 $WranglerVersion = '4.112.0'
 $Bucket = 'extweigh-updates'
-$BaseUrl = 'https://extweigh.nephilim.jp'
+$BaseUrl = 'https://extweigh.kagayoi.com'
 $AccountId = '10901bfadbf1005164774a7350082985'
 $SecretsPath = 'C:\Users\IMT\dev\Secret\secrets.json'
 $CertSubjectName = 'Open Source Developer Yuichiro Shinozaki'

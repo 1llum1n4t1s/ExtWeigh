@@ -7,11 +7,11 @@ ExtWeighのWindows配布物はローカルで署名し、Cloudflare R2から配�
 | 用途 | 値 |
 |---|---|
 | R2 bucket | `extweigh-updates` |
-| 公開URL | `https://extweigh.nephilim.jp` |
+| 公開URL | `https://extweigh.kagayoi.com` |
 | Velopack channel | `win-x64` |
 | package ID | `ExtWeigh` |
 | Landing Worker | `extweigh-landing` |
-| Worker Route | `extweigh.nephilim.jp/*` |
+| Worker Route | `extweigh.kagayoi.com/*` |
 
 `website/worker.js` は `/`、`/privacy`、CSS、JavaScript、robots、sitemapだけを返します。それ以外のリクエストは同一ホスト名のR2 Custom Domainへ委譲するため、Setup.exe、Portable ZIP、nupkg、Velopack manifestのRange・キャッシュ・Content-TypeをR2側に維持できます。
 
@@ -20,7 +20,7 @@ ExtWeighのWindows配布物はローカルで署名し、Cloudflare R2から配�
 次のCloudflare資源はリポジトリの設定だけでは作成されません。
 
 1. `extweigh-updates` bucketを作成する。
-2. bucketのCustom Domainに `extweigh.nephilim.jp` を接続する。
+2. bucketのCustom Domainに `extweigh.kagayoi.com` を接続する。
 3. GitHub Actions用に `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` を登録する。
 4. `CLOUDFLARE_API_TOKEN` へWorkers Scriptsの編集権限を付与する。
 5. ローカルリリース用の `cloudflare.api_token` へR2編集、zone参照、キャッシュパージに必要な最小権限を付与する。
@@ -65,7 +65,7 @@ pwsh scripts/release-local.ps1 -Cleanup
 Microsoft StoreのMSI/EXE申請では、提出後に内容が変わらないバージョン付きHTTPS URLが必要です。リリーススクリプトは固定名Setupに加え、次の署名済みコピーを生成・保持します。
 
 ```text
-https://extweigh.nephilim.jp/ExtWeigh-<VERSION>-win-x64-Setup.exe
+https://extweigh.kagayoi.com/ExtWeigh-<VERSION>-win-x64-Setup.exe
 ```
 
 Partner CenterのInstaller parametersには `--silent` を指定します。新バージョンは新しいURLで別submissionとして登録します。

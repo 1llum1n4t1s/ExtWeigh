@@ -10,9 +10,9 @@ ExtWeighをWin32 MSI/EXEアプリとしてPartner Centerへ申請するための
 | Architecture | x64 |
 | Language | Japanese (Japan) |
 | Installer parameters | `--silent` |
-| Versioned package URL | `https://extweigh.nephilim.jp/ExtWeigh-<VERSION>-win-x64-Setup.exe` |
+| Versioned package URL | `https://extweigh.kagayoi.com/ExtWeigh-<VERSION>-win-x64-Setup.exe` |
 | Support URL | `https://github.com/1llum1n4t1s/ExtWeigh/issues` |
-| Privacy policy URL | `https://extweigh.nephilim.jp/privacy` |
+| Privacy policy URL | `https://extweigh.kagayoi.com/privacy` |
 | License | MIT |
 | Applicable license terms | `https://github.com/1llum1n4t1s/ExtWeigh/blob/main/LICENSE` |
 

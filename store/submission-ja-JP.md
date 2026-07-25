@@ -12,7 +12,7 @@
 
 - 短い説明と詳細説明: `store/listing-ja-JP.md`
 - サポートURL: `https://github.com/1llum1n4t1s/ExtWeigh/issues`
-- プライバシーポリシー: `https://extweigh.nephilim.jp/privacy`
+- プライバシーポリシー: `https://extweigh.kagayoi.com/privacy`
 - 適用ライセンス条項: `https://github.com/1llum1n4t1s/ExtWeigh/blob/main/LICENSE`
 - 1:1 Store logo: `icon/app_icon.png`
 
@@ -21,7 +21,7 @@
 - App type: `EXE`
 - Architecture: `x64`
 - Installer parameters: `--silent`
-- Package URL: `https://extweigh.nephilim.jp/ExtWeigh-<VERSION>-win-x64-Setup.exe`
+- Package URL: `https://extweigh.kagayoi.com/ExtWeigh-<VERSION>-win-x64-Setup.exe`
 - Google Chrome: 外部依存（自動検出、Chrome for Testingのパス指定も可能）
 - 非Microsoft製driver / NT service: `なし`
 - Bundleware: `なし`
