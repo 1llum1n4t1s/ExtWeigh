@@ -17,3 +17,7 @@ extweigh-out/
 
 # ローカル署名付きリリース成果物
 local-release/
+
+# ローカルツールの作業状態（LSPキャッシュ・Wrangler dev state）
+.serena/
+website/.wrangler/
