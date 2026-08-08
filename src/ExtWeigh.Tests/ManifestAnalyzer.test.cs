@@ -79,6 +79,33 @@ public sealed class ManifestAnalyzerTests
     }
 
     [TestMethod]
+    public void GenerateScenarios_似た名前の別ドメインを既知ドメインと誤認しない()
+    {
+        WriteManifest("""
+            {
+              "manifest_version": 3, "name": "fake", "version": "1.0",
+              "content_scripts": [{ "matches": ["*://*.notyoutube.com/*"], "js": ["c.js"] }]
+            }
+            """);
+
+        var scenarios = ManifestAnalyzer.GenerateScenarios(ManifestAnalyzer.Parse(_tempDir));
+
+        Assert.IsFalse(scenarios.Any(s => s.Url.Contains("www.youtube.com")),
+            "notyoutube.com が YouTube の代表 URL を引き当てないこと");
+        Assert.IsTrue(scenarios.Any(s => s.Url.Contains("notyoutube.com")),
+            "自ホストのトップページがシナリオになること");
+    }
+
+    [TestMethod]
+    public void HostMatches_ラベル境界でのみ一致する()
+    {
+        Assert.IsTrue(ManifestAnalyzer.HostMatches("youtube.com", "youtube.com"));
+        Assert.IsTrue(ManifestAnalyzer.HostMatches("www.youtube.com", "youtube.com"));
+        Assert.IsFalse(ManifestAnalyzer.HostMatches("notyoutube.com", "youtube.com"));
+        Assert.IsFalse(ManifestAnalyzer.HostMatches("evil-youtube.com", "youtube.com"));
+    }
+
+    [TestMethod]
     public void GenerateScenarios_全URLマッチはフォールバックURLを生成する()
     {
         WriteManifest("""

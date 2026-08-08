@@ -36,9 +36,9 @@ public static class RunAnalyzer
             Extensions = [.. extensions],
         };
 
-        foreach (var scenario in plan.Scenarios)
+        foreach (var (scenario, scenarioIndex) in plan.Scenarios.Select((s, i) => (s, i)))
         {
-            var slug = scenario.Slug();
+            var slug = scenario.Slug(scenarioIndex);
             var scenarioDir = Path.Combine(outputDir, "scenarios", slug);
             if (!Directory.Exists(scenarioDir))
             {

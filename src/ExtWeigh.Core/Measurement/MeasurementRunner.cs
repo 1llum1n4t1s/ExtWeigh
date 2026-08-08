@@ -84,9 +84,9 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
         var totalRuns = plan.Scenarios.Count * plan.Repeat * conditions.Count;
         var doneRuns = 0;
 
-        foreach (var scenario in plan.Scenarios)
+        foreach (var (scenario, scenarioIndex) in plan.Scenarios.Select((s, i) => (s, i)))
         {
-            var scenarioDir = Path.Combine(plan.OutputDir, "scenarios", scenario.Slug());
+            var scenarioDir = Path.Combine(plan.OutputDir, "scenarios", scenario.Slug(scenarioIndex));
             Directory.CreateDirectory(scenarioDir);
 
             for (var iteration = 1; iteration <= plan.Repeat; iteration++)
@@ -166,211 +166,230 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
         var extTargetChannel = Channel.CreateUnbounded<(string TargetId, string Type, string Url)>();
         Task? extAttachTask = null;
 
-        if (extensionOn)
-        {
-            cdp.EventReceived += evt =>
-            {
-                if (evt.Method != "Target.targetCreated") return;
-                if (!evt.Params.TryGetProperty("targetInfo", out var info)) return;
-                var url = info.GetProperty("url").GetString() ?? "";
-                var type = info.GetProperty("type").GetString() ?? "";
-                var targetId = info.GetProperty("targetId").GetString() ?? "";
-                if (!url.StartsWith("chrome-extension://", StringComparison.Ordinal)) return;
-                if (type is not ("service_worker" or "page" or "other")) return;
-                extTargetChannel.Writer.TryWrite((targetId, type, url));
-            };
-
-            extAttachTask = Task.Run(async () =>
-            {
-                await foreach (var (targetId, type, url) in extTargetChannel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
-                {
-                    if (!attachedTargetIds.Add(targetId)) continue;
-                    try
-                    {
-                        var attach = await cdp.SendAsync("Target.attachToTarget", new { targetId, flatten = true }, ct: ct).ConfigureAwait(false);
-                        var session = new CdpSession(cdp, attach.GetProperty("sessionId").GetString()!, targetId);
-                        await session.SendAsync("Profiler.enable", ct: ct).ConfigureAwait(false);
-                        await session.SendAsync("Profiler.setSamplingInterval", new { interval = SamplingIntervalUs }, ct: ct).ConfigureAwait(false);
-                        await session.SendAsync("Profiler.start", ct: ct).ConfigureAwait(false);
-                        var kind = type == "service_worker" ? "service_worker"
-                            : url.Contains("offscreen", StringComparison.OrdinalIgnoreCase) ? "offscreen"
-                            : type;
-                        lock (extraTargets) extraTargets.Add((kind, url, session));
-                        LoggerService.Log($"拡張ターゲットにアタッチ: {kind} {url}", LogLevel.Debug);
-                    }
-                    catch (Exception ex)
-                    {
-                        // ターゲットが短命で attach に失敗するのは想定内（計測は続行）
-                        LoggerService.Log($"拡張ターゲットへの attach に失敗 ({url}): {ex.Message}", LogLevel.Warning);
-                    }
-                }
-            }, ct);
-        }
-
-        await cdp.SendAsync("Target.setDiscoverTargets", new { discover = true }, ct: ct).ConfigureAwait(false);
-
-        // メインページの target を特定して attach
-        var targets = await cdp.SendAsync("Target.getTargets", ct: ct).ConfigureAwait(false);
-        string? pageTargetId = null;
-        foreach (var t in targets.GetProperty("targetInfos").EnumerateArray())
-        {
-            var type = t.GetProperty("type").GetString();
-            var url = t.GetProperty("url").GetString() ?? "";
-            if (type == "page" && !url.StartsWith("chrome-extension://", StringComparison.Ordinal))
-            {
-                pageTargetId = t.GetProperty("targetId").GetString();
-                break;
-            }
-        }
-        if (pageTargetId is null)
-        {
-            throw new InvalidOperationException("メインページの CDP ターゲットが見つかりませんでした");
-        }
-
-        var pageAttach = await cdp.SendAsync("Target.attachToTarget", new { targetId = pageTargetId, flatten = true }, ct: ct).ConfigureAwait(false);
-        var page = new CdpSession(cdp, pageAttach.GetProperty("sessionId").GetString()!, pageTargetId);
-
-        await page.SendAsync("Page.enable", ct: ct).ConfigureAwait(false);
-        await page.SendAsync("Runtime.enable", ct: ct).ConfigureAwait(false);
-        await page.SendAsync("Performance.enable", ct: ct).ConfigureAwait(false);
-        await page.SendAsync("Page.addScriptToEvaluateOnNewDocument", new { source = LongTaskObserverScript }, ct: ct).ConfigureAwait(false);
-        await page.SendAsync("Profiler.enable", ct: ct).ConfigureAwait(false);
-        await page.SendAsync("Profiler.setSamplingInterval", new { interval = SamplingIntervalUs }, ct: ct).ConfigureAwait(false);
-
-        // Chrome trace 開始（ブラウザレベル、失敗しても計測は続行）
-        var tracingStarted = false;
-        if (plan.EnableTracing)
-        {
-            try
-            {
-                await cdp.SendAsync("Tracing.start", new
-                {
-                    transferMode = "ReturnAsStream",
-                    streamFormat = "json",
-                    traceConfig = new { includedCategories = TraceCategories },
-                }, ct: ct).ConfigureAwait(false);
-                tracingStarted = true;
-            }
-            catch (Exception ex)
-            {
-                LoggerService.Log($"Tracing.start に失敗（trace なしで続行）: {ex.Message}", LogLevel.Warning);
-            }
-        }
-
-        var wall = Stopwatch.StartNew();
-        await page.SendAsync("Profiler.start", ct: ct).ConfigureAwait(false);
-
-        // ナビゲーション + シナリオステップ実行
-        var loadWait = cdp.WaitForEventAsync("Page.loadEventFired", page.SessionId, timeout: TimeSpan.FromSeconds(20), ct: ct);
-        await page.SendAsync("Page.navigate", new { url = scenario.Url }, ct: ct).ConfigureAwait(false);
+        // 途中で例外・キャンセルが起きても attach タスクを必ず回収する。
+        // Channel を完了させないと ReadAllAsync が待ち続け、タスクが残留する。
         try
         {
-            await loadWait.ConfigureAwait(false);
-        }
-        catch (TimeoutException)
-        {
-            LoggerService.Log($"load イベント待機がタイムアウト（続行）: {scenario.Url}", LogLevel.Warning);
-        }
-
-        foreach (var step in scenario.Steps)
-        {
-            ct.ThrowIfCancellationRequested();
-            await ExecuteStepAsync(page, step, ct).ConfigureAwait(false);
-        }
-
-        // ---- 収集フェーズ ----
-        metrics.WallDurationMs = wall.Elapsed.TotalMilliseconds;
-
-        // シナリオ実行中に Chrome が書き出した設定から対象拡張 ID を確定する
-        var loadedExtensionIds = extensionOn
-            ? await WaitForLoadedExtensionIdsAsync(userDataDir, condition.EnabledExtensions, ct).ConfigureAwait(false)
-            : [];
-        foreach (var (key, id) in loadedExtensionIds) metrics.LoadedExtensionIds[key] = id;
-        var extensionByChromeId = condition.EnabledExtensions.ToDictionary(
-            extension => loadedExtensionIds[extension.Key],
-            extension => extension,
-            StringComparer.Ordinal);
-
-        // メインページの CPU profile
-        var profileResult = await page.SendAsync("Profiler.stop", timeout: TimeSpan.FromSeconds(120), ct: ct).ConfigureAwait(false);
-        var profileJson = profileResult.GetProperty("profile").GetRawText();
-        await File.WriteAllTextAsync(Path.Combine(scenarioDir, $"{fileBase}.cpuprofile"), profileJson, ct).ConfigureAwait(false);
-        var profile = CpuProfile.Parse(profileJson);
-        metrics.CpuTotalMs = CpuProfileAnalyzer.ComputeTotalCpuUs(profile) / 1000.0;
-        metrics.ExtensionCpuMs = extensionOn
-            ? CpuProfileAnalyzer.ComputeCpuUsByUrlPrefixes(
-                profile,
-                [.. loadedExtensionIds.Values.Select(id => $"chrome-extension://{id}/")]) / 1000.0
-            : 0;
-
-        // Long tasks / JS heap
-        await CollectPageMetricsAsync(page, metrics, ct).ConfigureAwait(false);
-
-        // 拡張由来ターゲット（SW / Offscreen）の CPU profile
-        if (extensionOn)
-        {
-            extTargetChannel.Writer.TryComplete();
-            if (extAttachTask is not null)
+            if (extensionOn)
             {
-                try { await extAttachTask.ConfigureAwait(false); } catch (OperationCanceledException) { }
+                cdp.EventReceived += evt =>
+                {
+                    if (evt.Method != "Target.targetCreated") return;
+                    if (!evt.Params.TryGetProperty("targetInfo", out var info)) return;
+                    var url = info.GetProperty("url").GetString() ?? "";
+                    var type = info.GetProperty("type").GetString() ?? "";
+                    var targetId = info.GetProperty("targetId").GetString() ?? "";
+                    if (!url.StartsWith("chrome-extension://", StringComparison.Ordinal)) return;
+                    if (type is not ("service_worker" or "page" or "other")) return;
+                    extTargetChannel.Writer.TryWrite((targetId, type, url));
+                };
+
+                extAttachTask = Task.Run(async () =>
+                {
+                    await foreach (var (targetId, type, url) in extTargetChannel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+                    {
+                        if (!attachedTargetIds.Add(targetId)) continue;
+                        try
+                        {
+                            var attach = await cdp.SendAsync("Target.attachToTarget", new { targetId, flatten = true }, ct: ct).ConfigureAwait(false);
+                            var session = new CdpSession(cdp, attach.GetProperty("sessionId").GetString()!, targetId);
+                            await session.SendAsync("Profiler.enable", ct: ct).ConfigureAwait(false);
+                            await session.SendAsync("Profiler.setSamplingInterval", new { interval = SamplingIntervalUs }, ct: ct).ConfigureAwait(false);
+                            await session.SendAsync("Profiler.start", ct: ct).ConfigureAwait(false);
+                            var kind = type == "service_worker" ? "service_worker"
+                                : url.Contains("offscreen", StringComparison.OrdinalIgnoreCase) ? "offscreen"
+                                : type;
+                            lock (extraTargets) extraTargets.Add((kind, url, session));
+                            LoggerService.Log($"拡張ターゲットにアタッチ: {kind} {url}", LogLevel.Debug);
+                        }
+                        catch (Exception ex)
+                        {
+                            // ターゲットが短命で attach に失敗するのは想定内（計測は続行）
+                            LoggerService.Log($"拡張ターゲットへの attach に失敗 ({url}): {ex.Message}", LogLevel.Warning);
+                        }
+                    }
+                }, ct);
             }
 
-            List<(string Kind, string Url, CdpSession Session)> extras;
-            lock (extraTargets) extras = [.. extraTargets];
-            var kindIndexes = new Dictionary<string, int>();
-            foreach (var (kind, url, session) in extras)
+            await cdp.SendAsync("Target.setDiscoverTargets", new { discover = true }, ct: ct).ConfigureAwait(false);
+
+            // メインページの target を特定して attach
+            var targets = await cdp.SendAsync("Target.getTargets", ct: ct).ConfigureAwait(false);
+            string? pageTargetId = null;
+            foreach (var t in targets.GetProperty("targetInfos").EnumerateArray())
             {
-                if (!TryGetExtensionId(url, out var extensionId) ||
-                    !extensionByChromeId.TryGetValue(extensionId, out var extension)) continue;
-                var kindIndex = kindIndexes.GetValueOrDefault(kind) + 1;
-                kindIndexes[kind] = kindIndex;
-                var suffix = kind == "service_worker"
-                    ? (kindIndex == 1 ? "sw" : $"sw{kindIndex}")
-                    : $"extra{kindIndexes.Values.Sum() - 1}";
-                var file = $"{fileBase}.{extension.Key}.{suffix}.cpuprofile";
+                var type = t.GetProperty("type").GetString();
+                var url = t.GetProperty("url").GetString() ?? "";
+                if (type == "page" && !url.StartsWith("chrome-extension://", StringComparison.Ordinal))
+                {
+                    pageTargetId = t.GetProperty("targetId").GetString();
+                    break;
+                }
+            }
+            if (pageTargetId is null)
+            {
+                throw new InvalidOperationException("メインページの CDP ターゲットが見つかりませんでした");
+            }
+
+            var pageAttach = await cdp.SendAsync("Target.attachToTarget", new { targetId = pageTargetId, flatten = true }, ct: ct).ConfigureAwait(false);
+            var page = new CdpSession(cdp, pageAttach.GetProperty("sessionId").GetString()!, pageTargetId);
+
+            await page.SendAsync("Page.enable", ct: ct).ConfigureAwait(false);
+            await page.SendAsync("Runtime.enable", ct: ct).ConfigureAwait(false);
+            await page.SendAsync("Performance.enable", ct: ct).ConfigureAwait(false);
+            await page.SendAsync("Page.addScriptToEvaluateOnNewDocument", new { source = LongTaskObserverScript }, ct: ct).ConfigureAwait(false);
+            await page.SendAsync("Profiler.enable", ct: ct).ConfigureAwait(false);
+            await page.SendAsync("Profiler.setSamplingInterval", new { interval = SamplingIntervalUs }, ct: ct).ConfigureAwait(false);
+
+            // Chrome trace 開始（ブラウザレベル、失敗しても計測は続行）
+            var tracingStarted = false;
+            if (plan.EnableTracing)
+            {
                 try
                 {
-                    var extraResult = await session.SendAsync("Profiler.stop", timeout: TimeSpan.FromSeconds(60), ct: ct).ConfigureAwait(false);
-                    var extraJson = extraResult.GetProperty("profile").GetRawText();
-                    await File.WriteAllTextAsync(Path.Combine(scenarioDir, file), extraJson, ct).ConfigureAwait(false);
-                    var extraCpuMs = CpuProfileAnalyzer.ComputeTotalCpuUs(CpuProfile.Parse(extraJson)) / 1000.0;
-                    metrics.ExtraTargetsCpuMs += extraCpuMs;
-                    metrics.ExtraTargets.Add(new ExtraTargetInfo
+                    await cdp.SendAsync("Tracing.start", new
                     {
-                        ExtensionKey = extension.Key,
-                        ExtensionName = extension.Name,
-                        Kind = kind,
-                        TargetUrl = url,
-                        CpuProfileFile = file,
-                        CpuTotalMs = extraCpuMs,
-                    });
+                        transferMode = "ReturnAsStream",
+                        streamFormat = "json",
+                        traceConfig = new { includedCategories = TraceCategories },
+                    }, ct: ct).ConfigureAwait(false);
+                    tracingStarted = true;
                 }
                 catch (Exception ex)
                 {
-                    // SW が既に停止しているケースは想定内
-                    LoggerService.Log($"追加ターゲットのプロファイル取得に失敗 ({url}): {ex.Message}", LogLevel.Warning);
+                    LoggerService.Log($"Tracing.start に失敗（trace なしで続行）: {ex.Message}", LogLevel.Warning);
+                }
+            }
+
+            var wall = Stopwatch.StartNew();
+            await page.SendAsync("Profiler.start", ct: ct).ConfigureAwait(false);
+
+            // ナビゲーション + シナリオステップ実行
+            var loadWait = cdp.WaitForEventAsync("Page.loadEventFired", page.SessionId, timeout: TimeSpan.FromSeconds(20), ct: ct);
+            await page.SendAsync("Page.navigate", new { url = scenario.Url }, ct: ct).ConfigureAwait(false);
+            try
+            {
+                await loadWait.ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                LoggerService.Log($"load イベント待機がタイムアウト（続行）: {scenario.Url}", LogLevel.Warning);
+            }
+
+            foreach (var step in scenario.Steps)
+            {
+                ct.ThrowIfCancellationRequested();
+                await ExecuteStepAsync(page, step, ct).ConfigureAwait(false);
+            }
+
+            // ---- 収集フェーズ ----
+            metrics.WallDurationMs = wall.Elapsed.TotalMilliseconds;
+
+            // シナリオ実行中に Chrome が書き出した設定から対象拡張 ID を確定する
+            var loadedExtensionIds = extensionOn
+                ? await WaitForLoadedExtensionIdsAsync(userDataDir, condition.EnabledExtensions, ct).ConfigureAwait(false)
+                : [];
+            foreach (var (key, id) in loadedExtensionIds) metrics.LoadedExtensionIds[key] = id;
+            var extensionByChromeId = condition.EnabledExtensions.ToDictionary(
+                extension => loadedExtensionIds[extension.Key],
+                extension => extension,
+                StringComparer.Ordinal);
+
+            // メインページの CPU profile
+            var profileResult = await page.SendAsync("Profiler.stop", timeout: TimeSpan.FromSeconds(120), ct: ct).ConfigureAwait(false);
+            var profileJson = profileResult.GetProperty("profile").GetRawText();
+            await File.WriteAllTextAsync(Path.Combine(scenarioDir, $"{fileBase}.cpuprofile"), profileJson, ct).ConfigureAwait(false);
+            var profile = CpuProfile.Parse(profileJson);
+            metrics.CpuTotalMs = CpuProfileAnalyzer.ComputeTotalCpuUs(profile) / 1000.0;
+            metrics.ExtensionCpuMs = extensionOn
+                ? CpuProfileAnalyzer.ComputeCpuUsByUrlPrefixes(
+                    profile,
+                    [.. loadedExtensionIds.Values.Select(id => $"chrome-extension://{id}/")]) / 1000.0
+                : 0;
+
+            // Long tasks / JS heap
+            await CollectPageMetricsAsync(page, metrics, ct).ConfigureAwait(false);
+
+            // 拡張由来ターゲット（SW / Offscreen）の CPU profile
+            if (extensionOn)
+            {
+                extTargetChannel.Writer.TryComplete();
+                if (extAttachTask is not null)
+                {
+                    try { await extAttachTask.ConfigureAwait(false); } catch (OperationCanceledException) { }
+                }
+
+                List<(string Kind, string Url, CdpSession Session)> extras;
+                lock (extraTargets) extras = [.. extraTargets];
+                var kindIndexes = new Dictionary<string, int>();
+                foreach (var (kind, url, session) in extras)
+                {
+                    if (!TryGetExtensionId(url, out var extensionId) ||
+                        !extensionByChromeId.TryGetValue(extensionId, out var extension)) continue;
+                    var kindIndex = kindIndexes.GetValueOrDefault(kind) + 1;
+                    kindIndexes[kind] = kindIndex;
+                    var suffix = kind == "service_worker"
+                        ? (kindIndex == 1 ? "sw" : $"sw{kindIndex}")
+                        : $"extra{kindIndexes.Values.Sum() - 1}";
+                    var file = $"{fileBase}.{extension.Key}.{suffix}.cpuprofile";
+                    try
+                    {
+                        var extraResult = await session.SendAsync("Profiler.stop", timeout: TimeSpan.FromSeconds(60), ct: ct).ConfigureAwait(false);
+                        var extraJson = extraResult.GetProperty("profile").GetRawText();
+                        await File.WriteAllTextAsync(Path.Combine(scenarioDir, file), extraJson, ct).ConfigureAwait(false);
+                        var extraCpuMs = CpuProfileAnalyzer.ComputeTotalCpuUs(CpuProfile.Parse(extraJson)) / 1000.0;
+                        metrics.ExtraTargetsCpuMs += extraCpuMs;
+                        metrics.ExtraTargets.Add(new ExtraTargetInfo
+                        {
+                            ExtensionKey = extension.Key,
+                            ExtensionName = extension.Name,
+                            Kind = kind,
+                            TargetUrl = url,
+                            CpuProfileFile = file,
+                            CpuTotalMs = extraCpuMs,
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        // SW が既に停止しているケースは想定内
+                        LoggerService.Log($"追加ターゲットのプロファイル取得に失敗 ({url}): {ex.Message}", LogLevel.Warning);
+                    }
+                }
+            }
+
+            // Chrome trace 回収
+            if (tracingStarted)
+            {
+                try
+                {
+                    await CollectTraceAsync(cdp, Path.Combine(scenarioDir, $"{fileBase}.trace.json"), ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    LoggerService.Log($"trace の回収に失敗（続行）: {ex.Message}", LogLevel.Warning);
+                }
+            }
+
+            await File.WriteAllTextAsync(
+                Path.Combine(scenarioDir, $"{fileBase}.metrics.json"),
+                JsonSerializer.Serialize(metrics, JsonOptions), ct).ConfigureAwait(false);
+
+            return metrics;
+        }
+        finally
+        {
+            // 正常系では収集フェーズで既に完了済み。TryComplete / await とも冪等なので二重に呼んで問題ない。
+            extTargetChannel.Writer.TryComplete();
+            if (extAttachTask is not null)
+            {
+                try { await extAttachTask.ConfigureAwait(false); }
+                catch (OperationCanceledException) { /* キャンセル経由の正常終了 */ }
+                catch (Exception ex)
+                {
+                    LoggerService.Log($"拡張ターゲット attach タスクの終了時に例外: {ex.Message}", LogLevel.Warning);
                 }
             }
         }
-
-        // Chrome trace 回収
-        if (tracingStarted)
-        {
-            try
-            {
-                await CollectTraceAsync(cdp, Path.Combine(scenarioDir, $"{fileBase}.trace.json"), ct).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LoggerService.Log($"trace の回収に失敗（続行）: {ex.Message}", LogLevel.Warning);
-            }
-        }
-
-        await File.WriteAllTextAsync(
-            Path.Combine(scenarioDir, $"{fileBase}.metrics.json"),
-            JsonSerializer.Serialize(metrics, JsonOptions), ct).ConfigureAwait(false);
-
-        return metrics;
     }
 
     /// <summary>Chrome の Preferences から、指定した展開済み拡張が実際にロードされたことと ID を確認する</summary>

@@ -17,6 +17,8 @@ public sealed partial class MeasureViewModel : ObservableObject
     private readonly SettingsService _settings;
     private CancellationTokenSource? _cts;
     private int _nextExtensionNumber = 1;
+    /// <summary>コンストラクタでの設定値流し込み中は保存し返さない</summary>
+    private bool _isInitializing = true;
 
     /// <summary>複数フォルダ選択ダイアログ（View 側から注入）</summary>
     public Func<Task<IReadOnlyList<string>>>? PickFoldersAsync { get; set; }
@@ -70,6 +72,7 @@ public sealed partial class MeasureViewModel : ObservableObject
         {
             AddExtensionPath(path, save: false);
         }
+        _isInitializing = false;
     }
 
     /// <summary>manifest を解析し、重複していない拡張とシナリオを追加する</summary>
@@ -146,6 +149,19 @@ public sealed partial class MeasureViewModel : ObservableObject
             _ => $"複数モード: {Extensions.Count}個を全ONにした条件と、1つずつOFFにした条件を比較します。",
         };
         RefreshScenarioSummary();
+    }
+
+    /// <summary>計測タブのトグルは変更即保存する（再起動しても選択が残るように）</summary>
+    partial void OnEnableTracingChanged(bool value)
+    {
+        if (_isInitializing) return;
+        _settings.MutateAndSave(s => s.EnableTracing = value);
+    }
+
+    partial void OnShowBrowserChanged(bool value)
+    {
+        if (_isInitializing) return;
+        _settings.MutateAndSave(s => s.ShowBrowser = value);
     }
 
     private void SaveExtensionPaths()

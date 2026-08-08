@@ -49,8 +49,13 @@ public sealed class Scenario
     public required string Url { get; set; }
     public List<ScenarioStep> Steps { get; set; } = [];
 
-    /// <summary>出力ディレクトリ名などに使う安全なスラグを生成する</summary>
-    public string Slug()
+    /// <summary>
+    /// 出力ディレクトリ名などに使う安全なスラグを生成する。
+    /// 名前は ASCII 英数字以外が落ちるため、日本語のみの名前は同じ文字列へ潰れる。
+    /// シナリオの並び順（1 始まり）を前置して、ディレクトリ衝突を構造的に防ぐ。
+    /// </summary>
+    /// <param name="index">plan.Scenarios 内での 0 始まりの位置</param>
+    public string Slug(int index)
     {
         var chars = Name.ToLowerInvariant()
             .Select(c => char.IsAsciiLetterOrDigit(c) ? c : '-')
@@ -58,7 +63,8 @@ public sealed class Scenario
         var slug = new string(chars);
         while (slug.Contains("--")) slug = slug.Replace("--", "-");
         slug = slug.Trim('-');
-        return string.IsNullOrEmpty(slug) ? "scenario" : slug;
+        if (string.IsNullOrEmpty(slug)) slug = "scenario";
+        return $"{index + 1:00}-{slug}";
     }
 
     /// <summary>標準的な閲覧ステップ（初期待機 → スクロール 2 回 → 残り待機）を生成する</summary>

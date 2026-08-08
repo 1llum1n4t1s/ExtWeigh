@@ -141,7 +141,7 @@ public static class ManifestAnalyzer
         foreach (var (hostKey, name, url) in RepresentativeUrls)
         {
             if (scenarios.Count >= maxScenarios) break;
-            if (hosts.Any(h => h.EndsWith(hostKey, StringComparison.OrdinalIgnoreCase)) && usedUrls.Add(url))
+            if (hosts.Any(h => HostMatches(h, hostKey)) && usedUrls.Add(url))
             {
                 scenarios.Add(new Scenario { Name = name, Url = url, Steps = Scenario.DefaultBrowsingSteps(durationSec) });
             }
@@ -151,7 +151,7 @@ public static class ManifestAnalyzer
         foreach (var host in hosts)
         {
             if (scenarios.Count >= maxScenarios) break;
-            if (RepresentativeUrls.Any(r => host.EndsWith(r.HostKey, StringComparison.OrdinalIgnoreCase))) continue;
+            if (RepresentativeUrls.Any(r => HostMatches(host, r.HostKey))) continue;
             var url = $"https://{host}/";
             if (usedUrls.Add(url))
             {
@@ -190,6 +190,14 @@ public static class ManifestAnalyzer
 
         return scenarios;
     }
+
+    /// <summary>
+    /// ホストが既知ドメインに属するかをラベル境界付きで判定する。
+    /// 単純な EndsWith だと notyoutube.com が youtube.com に誤マッチする。
+    /// </summary>
+    internal static bool HostMatches(string host, string hostKey)
+        => host.Equals(hostKey, StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith($".{hostKey}", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>全 URL を対象にする match パターンか</summary>
     internal static bool IsCatchAllPattern(string pattern)

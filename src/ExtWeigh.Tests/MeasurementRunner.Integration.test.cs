@@ -90,7 +90,7 @@ public sealed class MeasurementRunnerIntegrationTests
 
             await new MeasurementRunner(plan).RunAsync(ct: CancellationToken.None);
             var analysis = RunAnalyzer.Analyze(outDir);
-            var scenarioDir = Path.Combine(outDir, "scenarios", "multi");
+            var scenarioDir = Path.Combine(outDir, "scenarios", "01-multi");
 
             Assert.IsTrue(File.Exists(Path.Combine(scenarioDir, "all-off-1.metrics.json")));
             Assert.IsTrue(File.Exists(Path.Combine(scenarioDir, "all-on-1.metrics.json")));
@@ -178,7 +178,7 @@ public sealed class MeasurementRunnerIntegrationTests
             await new MeasurementRunner(plan).RunAsync(progress, CancellationToken.None);
 
             // 出力ファイルの存在検証
-            var scenarioDir = Path.Combine(outDir, "scenarios", "smoke");
+            var scenarioDir = Path.Combine(outDir, "scenarios", "01-smoke");
             Assert.IsTrue(File.Exists(Path.Combine(scenarioDir, "off-1.cpuprofile")), "OFF cpuprofile が存在すること");
             Assert.IsTrue(File.Exists(Path.Combine(scenarioDir, "on-1.cpuprofile")), "ON cpuprofile が存在すること");
             Assert.IsTrue(File.Exists(Path.Combine(scenarioDir, "off-1.metrics.json")), "OFF metrics が存在すること");

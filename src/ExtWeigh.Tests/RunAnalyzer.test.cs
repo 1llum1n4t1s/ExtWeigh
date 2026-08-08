@@ -13,7 +13,7 @@ public sealed class RunAnalyzerTests
     public void Analyze_全ONと一つ抜きから拡張別寄与を算出する()
     {
         var root = Path.Combine(Path.GetTempPath(), $"extweigh-analysis-{Guid.NewGuid():N}");
-        var scenarioDir = Path.Combine(root, "scenarios", "browse");
+        var scenarioDir = Path.Combine(root, "scenarios", "01-browse");
         Directory.CreateDirectory(scenarioDir);
         try
         {

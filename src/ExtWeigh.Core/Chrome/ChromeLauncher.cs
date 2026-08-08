@@ -55,19 +55,7 @@ public sealed class ChromeInstance : IAsyncDisposable
             _process.Dispose();
         }
 
-        // プロファイルディレクトリ削除（ファイルロック解放待ちでリトライ）
-        for (var attempt = 0; attempt < 5; attempt++)
-        {
-            try
-            {
-                if (Directory.Exists(_userDataDir)) Directory.Delete(_userDataDir, recursive: true);
-                break;
-            }
-            catch
-            {
-                await Task.Delay(500).ConfigureAwait(false);
-            }
-        }
+        await ChromeLauncher.TryDeleteUserDataDirAsync(_userDataDir).ConfigureAwait(false);
     }
 }
 
@@ -103,8 +91,29 @@ public static class ChromeLauncher
         {
             try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { /* 起動失敗時の後始末 */ }
             process.Dispose();
+            // ChromeInstance を返せていないので DisposeAsync による削除が走らない。
+            // ここで消さないと起動失敗のたびに使い捨てプロファイルが残る。
+            await TryDeleteUserDataDirAsync(options.UserDataDir).ConfigureAwait(false);
             throw;
         }
+    }
+
+    /// <summary>使い捨てプロファイルを削除する（ファイルロック解放待ちでリトライ）</summary>
+    internal static async Task TryDeleteUserDataDirAsync(string userDataDir)
+    {
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                if (Directory.Exists(userDataDir)) Directory.Delete(userDataDir, recursive: true);
+                return;
+            }
+            catch
+            {
+                await Task.Delay(500).ConfigureAwait(false);
+            }
+        }
+        LoggerService.Log($"使い捨てプロファイルを削除できませんでした: {userDataDir}", LogLevel.Warning);
     }
 
     /// <summary>計測精度を保つための起動引数を組み立てる</summary>
