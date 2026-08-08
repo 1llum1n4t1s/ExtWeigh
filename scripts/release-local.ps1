@@ -277,7 +277,7 @@ foreach ($runtime in $Runtimes) {
             --packId ExtWeigh `
             --packVersion $Version `
             --packTitle 'ExtWeigh' `
-            --packAuthors '1llum1n4t1s' `
+            --packAuthors 'Kagayoi' `
             --mainExe 'ExtWeigh.UI.exe' `
             --icon (Join-Path 'icon' 'app.ico') `
             --packDir $publishDir `
@@ -398,7 +398,8 @@ if ($Cleanup) {
     foreach ($manifest in $manifestFiles) {
         $manifestData = Get-Content -LiteralPath $manifest.FullName -Raw | ConvertFrom-Json
         foreach ($asset in @($manifestData.Assets)) {
-            if ($asset.FileName -like '*.nupkg') {
+            # manifest が参照するファイルはすべて保持対象 (拡張子で絞らない)
+            if ($asset.FileName) {
                 $keep[$asset.FileName] = $true
             }
         }
@@ -426,7 +427,31 @@ if ($Cleanup) {
         if (-not $cursor) { break }
     }
 
-    $deleteCandidates = @($allKeys | Where-Object { $_ -like '*.nupkg' -and -not $keep.ContainsKey($_) })
+    # 全プロジェクト共通の保持ポリシー: 直近 2 バージョン。
+    # ⚠️ 旧実装は '*.nupkg' だけを削除対象にしていたため、バージョン付きの配布物
+    #    (zip / deb / rpm / AppImage 等) が R2 に永久に溜まる構造だった
+    #    (Ferry では同原因で 351 個 7.2GB = 含有枠 10GB の 72% を滞留させていた)。
+    #    固定ファイル名 (Setup.exe / Portable.zip / RELEASES* / releases.*.json) は
+    #    バージョン文字列を含まないので対象外 = 安全。
+    $KeepVersionCount = 2
+    $versionPattern = '(\d+\.\d+\.\d+)'
+    $allVersions = @(
+        $allKeys | ForEach-Object {
+            $m = [regex]::Match($_, $versionPattern)
+            if ($m.Success) { $m.Groups[1].Value }
+        } | Sort-Object -Property { [version]$_ } -Unique
+    )
+    $keepVersions = @($allVersions | Select-Object -Last $KeepVersionCount)
+    Write-Host "  保持バージョン: $($keepVersions -join ', ') (全 $($allVersions.Count) 世代)"
+
+    $deleteCandidates = @($allKeys | Where-Object {
+        # manifest が参照するファイルは絶対保持 (消すと自動更新が壊れる)
+        if ($keep.ContainsKey($_)) { return $false }
+        # 固定ファイル名はバージョン文字列を含まない = 毎リリース上書きなので保持
+        $m = [regex]::Match($_, $versionPattern)
+        if (-not $m.Success) { return $false }
+        return $keepVersions -notcontains $m.Groups[1].Value
+    })
     if ($deleteCandidates.Count -eq 0) {
         Write-Host '  ✅ 削除対象なし'
     }
