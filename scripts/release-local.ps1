@@ -137,7 +137,9 @@ function Test-PublishedObject {
         throw "配信確認失敗: $url → HTTP $($response.StatusCode)"
     }
 
-    $contentLength = $response.Headers['Content-Length']
+    # PowerShell 7 の Invoke-WebRequest はヘッダ値を string[] で返すため、
+    # そのまま [long] へキャストすると "System.String[]" 変換エラーになる。
+    $contentLength = @($response.Headers['Content-Length'])[0]
     if ($contentLength -and [long]$contentLength -ne $File.Length) {
         throw "配信サイズ不一致: $($File.Name) (local=$($File.Length), remote=$contentLength)"
     }
