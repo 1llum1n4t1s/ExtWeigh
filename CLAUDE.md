@@ -60,3 +60,13 @@ dotnet test src/ExtWeigh.Tests -c Debug --filter "TestCategory=Integration"    #
 - Chrome 137+ の branded ビルドで `--load-extension` が無視される環境がある。その場合は設定タブで Chrome for Testing を指定してもらう（README のトラブルシュート参照）
 - flamegraph の埋め込み（speedscope vendor 同梱）は未実装。`.cpuprofile` を DevTools / speedscope.app で開く運用
 - Velopack の起動フックと Certum SimplySign によるローカルコード署名リリースを導入済み。`scripts/release-local.ps1` と `vava.config.json` が `win-x64` の署名付き Setup.exe / Portable ZIP を生成する。自動更新の配信先は未設定
+
+## ドメイン移行（2026-07 開始・期限 2027/05/31）
+
+屋号を **Kagayoi** に統一したため、配信ドメインを `nephilim.jp` から `kagayoi.com` へ移行中。方針の全体像はユーザーグローバルの `CLAUDE.md` §屋号とドメイン を参照する。
+
+- **旧ドメイン `nephilim.jp` はレジストラで廃止申請済みで 2027/05/31 に失効する**（延長しない）。それまでに出荷済みバイナリを新ドメインへ移行しきる。
+- 旧ホストの Worker route / custom domain は**期限まで消さない**。消すと出荷済みアプリの自動更新が止まる。
+- `nephilim.jp` の Redirect Rules は `/` だけを 301 する。`releases.*.json` / `*.nupkg` / `*-Setup.exe` は転送せず R2 が配信を続ける。
+- 配信は `extweigh.kagayoi.com`（R2 `extweigh-updates`）。旧 `extweigh.nephilim.jp` は route に併記して残してある。
+- `deploy-landing.yml` は `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` の GitHub Secrets を使う（2026-07-26 に設定済み）。
