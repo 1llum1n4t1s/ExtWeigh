@@ -4,19 +4,26 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    labels:
-      - dependencies
-      - github-actions
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
     commit-message:
       prefix: ci
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: nuget
     directory: /
     schedule:
       interval: weekly
-    labels:
-      - dependencies
-      - nuget
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
     commit-message:
       prefix: deps
     allow:
@@ -25,3 +32,10 @@ updates:
       - dependency-name: '*'
         update-types:
           - version-update:semver-major
+    groups:
+      nuget-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
