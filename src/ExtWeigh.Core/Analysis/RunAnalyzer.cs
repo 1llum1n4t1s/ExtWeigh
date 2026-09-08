@@ -1,6 +1,7 @@
 using System.Text.Json;
 using ExtWeigh.Core.Logging;
 using ExtWeigh.Core.Models;
+using ExtWeigh.Core.Serialization;
 
 namespace ExtWeigh.Core.Analysis;
 
@@ -10,13 +11,6 @@ namespace ExtWeigh.Core.Analysis;
 /// </summary>
 public static class RunAnalyzer
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true,
-    };
-
     /// <summary>hot functions の表示上限</summary>
     private const int TopFunctionCount = 30;
 
@@ -24,7 +18,7 @@ public static class RunAnalyzer
     public static AnalysisResult Analyze(string outputDir)
     {
         var planPath = Path.Combine(outputDir, "plan.json");
-        var plan = JsonSerializer.Deserialize<MeasurementPlan>(File.ReadAllText(planPath), JsonOptions)
+        var plan = JsonSerializer.Deserialize(File.ReadAllText(planPath), ExtWeighJsonContext.Default.MeasurementPlan)
             ?? throw new InvalidDataException($"plan.json の読み取りに失敗しました: {planPath}");
         var extensions = plan.GetEffectiveExtensions();
 
@@ -47,7 +41,7 @@ public static class RunAnalyzer
             }
 
             var runs = Directory.GetFiles(scenarioDir, "*.metrics.json")
-                .Select(f => JsonSerializer.Deserialize<SingleRunMetrics>(File.ReadAllText(f), JsonOptions))
+                .Select(f => JsonSerializer.Deserialize(File.ReadAllText(f), ExtWeighJsonContext.Default.SingleRunMetrics))
                 .Where(m => m is not null)
                 .Select(m => m!)
                 .ToList();
@@ -82,7 +76,7 @@ public static class RunAnalyzer
             result.Scenarios.Add(analysis);
         }
 
-        File.WriteAllText(Path.Combine(outputDir, "analysis.json"), JsonSerializer.Serialize(result, JsonOptions));
+        File.WriteAllText(Path.Combine(outputDir, "analysis.json"), JsonSerializer.Serialize(result, ExtWeighJsonContext.Default.AnalysisResult));
         return result;
     }
 
@@ -139,7 +133,7 @@ public static class RunAnalyzer
         if (!File.Exists(path)) return null;
         try
         {
-            return JsonSerializer.Deserialize<AnalysisResult>(File.ReadAllText(path), JsonOptions);
+            return JsonSerializer.Deserialize(File.ReadAllText(path), ExtWeighJsonContext.Default.AnalysisResult);
         }
         catch (Exception ex)
         {

@@ -69,4 +69,4 @@ dotnet test src/ExtWeigh.Tests -c Debug --filter "TestCategory=Integration"    #
 - 旧ホストの Worker route / custom domain は**期限まで消さない**。消すと出荷済みアプリの自動更新が止まる。
 - `nephilim.jp` の Redirect Rules は `/` だけを 301 する。`releases.*.json` / `*.nupkg` / `*-Setup.exe` は転送せず R2 が配信を続ける。
 - 配信は `extweigh.kagayoi.com`（R2 `extweigh-updates`）。旧 `extweigh.nephilim.jp` は route に併記して残してある。
-- `deploy-landing.yml` は `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` の GitHub Secrets を使う（2026-07-26 に設定済み）。
+- 製品ページの配信は `vps-web/deploy/deploy-lp.ps1` を使う。公開ホスト・更新ファイルの既存経路を維持する。

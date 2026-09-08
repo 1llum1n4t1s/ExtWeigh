@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ExtWeigh.Core.Serialization;
 
 namespace ExtWeigh.Core.Analysis;
 
@@ -50,14 +51,9 @@ public sealed class CpuProfile
     [JsonPropertyName("timeDeltas")]
     public int[] TimeDeltas { get; set; } = [];
 
-    private static readonly JsonSerializerOptions ParseOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
-
     /// <summary>JSON 文字列から読み込む</summary>
     public static CpuProfile Parse(string json)
-        => JsonSerializer.Deserialize<CpuProfile>(json, ParseOptions)
+        => JsonSerializer.Deserialize(json, ExtWeighJsonContext.Default.CpuProfile)
            ?? throw new InvalidDataException("cpuprofile の解析に失敗しました");
 
     /// <summary>ファイルから読み込む</summary>

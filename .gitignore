@@ -19,5 +19,4 @@ extweigh-out/
 local-release/
 
 # ローカルツールの作業状態（LSPキャッシュ・Wrangler dev state）
-.serena/
 website/.wrangler/

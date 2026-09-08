@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ExtWeigh.Core.Logging;
 
 namespace ExtWeigh.Core.Cdp;
@@ -49,12 +51,12 @@ public sealed class CdpClient : IAsyncDisposable
     /// CDP コマンドを送信して result を返す。エラー応答は <see cref="CdpException"/>。
     /// </summary>
     /// <param name="method">CDP メソッド名（例: "Target.getTargets"）</param>
-    /// <param name="parameters">パラメータオブジェクト（匿名型可、null で省略）</param>
+    /// <param name="parameters">パラメータ（<see cref="JsonObject"/> 等の <see cref="JsonNode"/>、null で省略）</param>
     /// <param name="sessionId">flatten セッション ID（ブラウザレベルなら null）</param>
     /// <param name="timeout">応答待ちタイムアウト（既定 30 秒）</param>
     public async Task<JsonElement> SendAsync(
         string method,
-        object? parameters = null,
+        JsonNode? parameters = null,
         string? sessionId = null,
         TimeSpan? timeout = null,
         CancellationToken ct = default)
@@ -65,10 +67,10 @@ public sealed class CdpClient : IAsyncDisposable
         var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pending[id] = tcs;
 
-        var payload = new Dictionary<string, object?> { ["id"] = id, ["method"] = method };
+        var payload = new JsonObject { ["id"] = id, ["method"] = method };
         if (parameters is not null) payload["params"] = parameters;
         if (sessionId is not null) payload["sessionId"] = sessionId;
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
+        var bytes = Encoding.UTF8.GetBytes(payload.ToJsonString());
 
         try
         {

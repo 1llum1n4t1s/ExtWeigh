@@ -1,14 +1,13 @@
 using System.Text.Json;
 using ExtWeigh.Core.Analysis;
 using ExtWeigh.Core.Models;
+using ExtWeigh.Core.Serialization;
 
 namespace ExtWeigh.Tests;
 
 [TestClass]
 public sealed class RunAnalyzerTests
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
     [TestMethod]
     public void Analyze_全ONと一つ抜きから拡張別寄与を算出する()
     {
@@ -30,7 +29,7 @@ public sealed class RunAnalyzerTests
                 ChromePath = "chrome.exe",
                 OutputDir = root,
             };
-            File.WriteAllText(Path.Combine(root, "plan.json"), JsonSerializer.Serialize(plan, JsonOptions));
+            File.WriteAllText(Path.Combine(root, "plan.json"), JsonSerializer.Serialize(plan, ExtWeighJsonContext.Default.MeasurementPlan));
 
             WriteMetrics(scenarioDir, "all-off-1", "all-off", 1, 100, []);
             WriteMetrics(scenarioDir, "all-off-2", "all-off", 2, 102, []);
@@ -76,6 +75,6 @@ public sealed class RunAnalyzerTests
         };
         File.WriteAllText(
             Path.Combine(scenarioDir, $"{fileBase}.metrics.json"),
-            JsonSerializer.Serialize(metrics, JsonOptions));
+            JsonSerializer.Serialize(metrics, ExtWeighJsonContext.Default.SingleRunMetrics));
     }
 }

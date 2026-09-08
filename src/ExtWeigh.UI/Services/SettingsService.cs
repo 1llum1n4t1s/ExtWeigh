@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ExtWeigh.Core.Logging;
+using ExtWeigh.UI.Serialization;
 
 namespace ExtWeigh.UI.Services;
 
@@ -38,12 +39,6 @@ public sealed class AppSettings
 /// </summary>
 public sealed class SettingsService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNameCaseInsensitive = true,
-    };
-
     private readonly string _settingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "ExtWeigh", "settings.json");
@@ -63,7 +58,7 @@ public sealed class SettingsService
         {
             if (File.Exists(_settingsPath))
             {
-                Current = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath), JsonOptions) ?? new AppSettings();
+                Current = JsonSerializer.Deserialize(File.ReadAllText(_settingsPath), ExtWeighUiJsonContext.Default.AppSettings) ?? new AppSettings();
             }
         }
         catch (Exception ex)
@@ -86,7 +81,7 @@ public sealed class SettingsService
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
-            File.WriteAllText(_settingsPath, JsonSerializer.Serialize(Current, JsonOptions));
+            File.WriteAllText(_settingsPath, JsonSerializer.Serialize(Current, ExtWeighUiJsonContext.Default.AppSettings));
         }
         catch (Exception ex)
         {

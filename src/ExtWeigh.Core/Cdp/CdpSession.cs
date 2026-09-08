@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace ExtWeigh.Core.Cdp;
 
@@ -20,7 +21,7 @@ public sealed class CdpSession(CdpClient client, string sessionId, string target
     /// <summary>このセッション宛てに CDP コマンドを送信する</summary>
     public Task<JsonElement> SendAsync(
         string method,
-        object? parameters = null,
+        JsonNode? parameters = null,
         TimeSpan? timeout = null,
         CancellationToken ct = default)
         => Client.SendAsync(method, parameters, SessionId, timeout, ct);

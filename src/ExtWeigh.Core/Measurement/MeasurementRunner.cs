@@ -1,11 +1,13 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using ExtWeigh.Core.Analysis;
 using ExtWeigh.Core.Cdp;
 using ExtWeigh.Core.Chrome;
 using ExtWeigh.Core.Logging;
 using ExtWeigh.Core.Models;
+using ExtWeigh.Core.Serialization;
 
 namespace ExtWeigh.Core.Measurement;
 
@@ -20,12 +22,6 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
         string FilePrefix,
         string Label,
         IReadOnlyList<MeasurementExtension> EnabledExtensions);
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
 
     /// <summary>Long task を PerformanceObserver で記録する注入スクリプト</summary>
     private const string LongTaskObserverScript =
@@ -67,7 +63,7 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
         // 入力スナップショットを保存（後から再現・検証できるように）
         File.WriteAllText(
             Path.Combine(plan.OutputDir, "plan.json"),
-            JsonSerializer.Serialize(plan, JsonOptions));
+            JsonSerializer.Serialize(plan, ExtWeighJsonContext.Default.MeasurementPlan));
         var manifestsDir = Path.Combine(plan.OutputDir, "manifests");
         Directory.CreateDirectory(manifestsDir);
         foreach (var extension in extensions)
@@ -191,10 +187,10 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
                         if (!attachedTargetIds.Add(targetId)) continue;
                         try
                         {
-                            var attach = await cdp.SendAsync("Target.attachToTarget", new { targetId, flatten = true }, ct: ct).ConfigureAwait(false);
+                            var attach = await cdp.SendAsync("Target.attachToTarget", new JsonObject { ["targetId"] = targetId, ["flatten"] = true }, ct: ct).ConfigureAwait(false);
                             var session = new CdpSession(cdp, attach.GetProperty("sessionId").GetString()!, targetId);
                             await session.SendAsync("Profiler.enable", ct: ct).ConfigureAwait(false);
-                            await session.SendAsync("Profiler.setSamplingInterval", new { interval = SamplingIntervalUs }, ct: ct).ConfigureAwait(false);
+                            await session.SendAsync("Profiler.setSamplingInterval", new JsonObject { ["interval"] = SamplingIntervalUs }, ct: ct).ConfigureAwait(false);
                             await session.SendAsync("Profiler.start", ct: ct).ConfigureAwait(false);
                             var kind = type == "service_worker" ? "service_worker"
                                 : url.Contains("offscreen", StringComparison.OrdinalIgnoreCase) ? "offscreen"
@@ -211,7 +207,7 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
                 }, ct);
             }
 
-            await cdp.SendAsync("Target.setDiscoverTargets", new { discover = true }, ct: ct).ConfigureAwait(false);
+            await cdp.SendAsync("Target.setDiscoverTargets", new JsonObject { ["discover"] = true }, ct: ct).ConfigureAwait(false);
 
             // メインページの target を特定して attach
             var targets = await cdp.SendAsync("Target.getTargets", ct: ct).ConfigureAwait(false);
@@ -231,15 +227,15 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
                 throw new InvalidOperationException("メインページの CDP ターゲットが見つかりませんでした");
             }
 
-            var pageAttach = await cdp.SendAsync("Target.attachToTarget", new { targetId = pageTargetId, flatten = true }, ct: ct).ConfigureAwait(false);
+            var pageAttach = await cdp.SendAsync("Target.attachToTarget", new JsonObject { ["targetId"] = pageTargetId, ["flatten"] = true }, ct: ct).ConfigureAwait(false);
             var page = new CdpSession(cdp, pageAttach.GetProperty("sessionId").GetString()!, pageTargetId);
 
             await page.SendAsync("Page.enable", ct: ct).ConfigureAwait(false);
             await page.SendAsync("Runtime.enable", ct: ct).ConfigureAwait(false);
             await page.SendAsync("Performance.enable", ct: ct).ConfigureAwait(false);
-            await page.SendAsync("Page.addScriptToEvaluateOnNewDocument", new { source = LongTaskObserverScript }, ct: ct).ConfigureAwait(false);
+            await page.SendAsync("Page.addScriptToEvaluateOnNewDocument", new JsonObject { ["source"] = LongTaskObserverScript }, ct: ct).ConfigureAwait(false);
             await page.SendAsync("Profiler.enable", ct: ct).ConfigureAwait(false);
-            await page.SendAsync("Profiler.setSamplingInterval", new { interval = SamplingIntervalUs }, ct: ct).ConfigureAwait(false);
+            await page.SendAsync("Profiler.setSamplingInterval", new JsonObject { ["interval"] = SamplingIntervalUs }, ct: ct).ConfigureAwait(false);
 
             // Chrome trace 開始（ブラウザレベル、失敗しても計測は続行）
             var tracingStarted = false;
@@ -247,11 +243,14 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
             {
                 try
                 {
-                    await cdp.SendAsync("Tracing.start", new
+                    await cdp.SendAsync("Tracing.start", new JsonObject
                     {
-                        transferMode = "ReturnAsStream",
-                        streamFormat = "json",
-                        traceConfig = new { includedCategories = TraceCategories },
+                        ["transferMode"] = "ReturnAsStream",
+                        ["streamFormat"] = "json",
+                        ["traceConfig"] = new JsonObject
+                        {
+                            ["includedCategories"] = new JsonArray([.. TraceCategories.Select(c => (JsonNode?)JsonValue.Create(c))]),
+                        },
                     }, ct: ct).ConfigureAwait(false);
                     tracingStarted = true;
                 }
@@ -266,7 +265,7 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
 
             // ナビゲーション + シナリオステップ実行
             var loadWait = cdp.WaitForEventAsync("Page.loadEventFired", page.SessionId, timeout: TimeSpan.FromSeconds(20), ct: ct);
-            await page.SendAsync("Page.navigate", new { url = scenario.Url }, ct: ct).ConfigureAwait(false);
+            await page.SendAsync("Page.navigate", new JsonObject { ["url"] = scenario.Url }, ct: ct).ConfigureAwait(false);
             try
             {
                 await loadWait.ConfigureAwait(false);
@@ -372,7 +371,7 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
 
             await File.WriteAllTextAsync(
                 Path.Combine(scenarioDir, $"{fileBase}.metrics.json"),
-                JsonSerializer.Serialize(metrics, JsonOptions), ct).ConfigureAwait(false);
+                JsonSerializer.Serialize(metrics, ExtWeighJsonContext.Default.SingleRunMetrics), ct).ConfigureAwait(false);
 
             return metrics;
         }
@@ -476,10 +475,10 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
                 break;
 
             case StepType.Scroll:
-                await page.SendAsync("Runtime.evaluate", new
+                await page.SendAsync("Runtime.evaluate", new JsonObject
                 {
-                    expression = $"window.scrollTo({{ top: {step.ScrollY}, behavior: 'smooth' }})",
-                    returnByValue = true,
+                    ["expression"] = $"window.scrollTo({{ top: {step.ScrollY}, behavior: 'smooth' }})",
+                    ["returnByValue"] = true,
                 }, ct: ct).ConfigureAwait(false);
                 await Task.Delay(step.DurationMs, ct).ConfigureAwait(false);
                 break;
@@ -487,14 +486,14 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
             case StepType.WaitSelector:
                 {
                     var deadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(Math.Max(step.DurationMs, 1000));
-                    var selectorJson = JsonSerializer.Serialize(step.Selector ?? "");
+                    var selectorJson = JsonSerializer.Serialize(step.Selector ?? "", ExtWeighJsonContext.Default.String);
                     while (DateTime.UtcNow < deadline)
                     {
                         ct.ThrowIfCancellationRequested();
-                        var result = await page.SendAsync("Runtime.evaluate", new
+                        var result = await page.SendAsync("Runtime.evaluate", new JsonObject
                         {
-                            expression = $"!!document.querySelector({selectorJson})",
-                            returnByValue = true,
+                            ["expression"] = $"!!document.querySelector({selectorJson})",
+                            ["returnByValue"] = true,
                         }, ct: ct).ConfigureAwait(false);
                         if (result.TryGetProperty("result", out var r) &&
                             r.TryGetProperty("value", out var v) &&
@@ -510,23 +509,23 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
             case StepType.Keyboard:
                 {
                     var shortcut = KeyboardShortcut.Parse(step.Shortcut ?? throw new InvalidOperationException("Keyboard ステップに Shortcut がありません"));
-                    await page.SendAsync("Input.dispatchKeyEvent", new
+                    await page.SendAsync("Input.dispatchKeyEvent", new JsonObject
                     {
-                        type = "rawKeyDown",
-                        modifiers = shortcut.Modifiers,
-                        key = shortcut.Key,
-                        code = shortcut.Code,
-                        windowsVirtualKeyCode = shortcut.VirtualKeyCode,
-                        nativeVirtualKeyCode = shortcut.VirtualKeyCode,
+                        ["type"] = "rawKeyDown",
+                        ["modifiers"] = shortcut.Modifiers,
+                        ["key"] = shortcut.Key,
+                        ["code"] = shortcut.Code,
+                        ["windowsVirtualKeyCode"] = shortcut.VirtualKeyCode,
+                        ["nativeVirtualKeyCode"] = shortcut.VirtualKeyCode,
                     }, ct: ct).ConfigureAwait(false);
-                    await page.SendAsync("Input.dispatchKeyEvent", new
+                    await page.SendAsync("Input.dispatchKeyEvent", new JsonObject
                     {
-                        type = "keyUp",
-                        modifiers = shortcut.Modifiers,
-                        key = shortcut.Key,
-                        code = shortcut.Code,
-                        windowsVirtualKeyCode = shortcut.VirtualKeyCode,
-                        nativeVirtualKeyCode = shortcut.VirtualKeyCode,
+                        ["type"] = "keyUp",
+                        ["modifiers"] = shortcut.Modifiers,
+                        ["key"] = shortcut.Key,
+                        ["code"] = shortcut.Code,
+                        ["windowsVirtualKeyCode"] = shortcut.VirtualKeyCode,
+                        ["nativeVirtualKeyCode"] = shortcut.VirtualKeyCode,
                     }, ct: ct).ConfigureAwait(false);
                     await Task.Delay(step.DurationMs, ct).ConfigureAwait(false);
                 }
@@ -539,10 +538,10 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
     {
         try
         {
-            var longTasks = await page.SendAsync("Runtime.evaluate", new
+            var longTasks = await page.SendAsync("Runtime.evaluate", new JsonObject
             {
-                expression = "JSON.stringify(window.__extweighLongTasks || [])",
-                returnByValue = true,
+                ["expression"] = "JSON.stringify(window.__extweighLongTasks || [])",
+                ["returnByValue"] = true,
             }, ct: ct).ConfigureAwait(false);
             if (longTasks.TryGetProperty("result", out var r) &&
                 r.TryGetProperty("value", out var v) &&
@@ -598,7 +597,7 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
         while (true)
         {
             ct.ThrowIfCancellationRequested();
-            var chunk = await cdp.SendAsync("IO.read", new { handle, size = 1 << 20 }, timeout: TimeSpan.FromSeconds(30), ct: ct).ConfigureAwait(false);
+            var chunk = await cdp.SendAsync("IO.read", new JsonObject { ["handle"] = handle, ["size"] = 1 << 20 }, timeout: TimeSpan.FromSeconds(30), ct: ct).ConfigureAwait(false);
             if (chunk.TryGetProperty("base64Encoded", out var b64) && b64.ValueKind == JsonValueKind.True)
             {
                 var bytes = Convert.FromBase64String(chunk.GetProperty("data").GetString() ?? "");
@@ -614,7 +613,7 @@ public sealed class MeasurementRunner(MeasurementPlan plan)
         await writer.FlushAsync(ct).ConfigureAwait(false);
         try
         {
-            await cdp.SendAsync("IO.close", new { handle }, ct: ct).ConfigureAwait(false);
+            await cdp.SendAsync("IO.close", new JsonObject { ["handle"] = handle }, ct: ct).ConfigureAwait(false);
         }
         catch
         {
