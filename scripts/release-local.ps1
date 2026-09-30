@@ -26,7 +26,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$WranglerVersion = '4.112.0'
+$WranglerVersion = '4.144.0'
 $Bucket = 'extweigh-updates'
 $BaseUrl = 'https://extweigh.kagayoi.com'
 $AccountId = '10901bfadbf1005164774a7350082985'
