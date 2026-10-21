@@ -22,10 +22,19 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Select SDK compatible with the locked compiler packs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $config = if (Test-Path -LiteralPath 'global.json') { Get-Content -LiteralPath 'global.json' -Raw | ConvertFrom-Json -AsHashtable } else { @{} }
+          if (-not $config.ContainsKey('sdk')) { $config['sdk'] = @{} }
+          $config['sdk']['version'] = '10.0.401'
+          $config['sdk']['rollForward'] = 'disable'
+          $config | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath 'global.json' -Encoding utf8
       - name: .NET SDK をセットアップ
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 10.0.401
 
       - name: CodeQL を初期化
         uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
