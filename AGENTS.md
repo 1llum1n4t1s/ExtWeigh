@@ -13,7 +13,7 @@ src/
 │  ├─ Measurement/   … MeasurementRunner（単体 ON/OFF、複数は全 OFF/全 ON/1 つ抜き × 反復の直列実行）/ KeyboardShortcut
 │  ├─ Analysis/      … CpuProfile(.cpuprofile パーサ) / CpuProfileAnalyzer(Self・Total・Callers・Children) / Statistics(中央値・σ・SIGNIF/NOISE) / RunAnalyzer(analysis.json 生成)
 │  ├─ Report/        … HtmlReportGenerator（自己完結 report.html）
-│  └─ Logging/       … LoggerService（SuperLightLogger ラッパー、%APPDATA%\ExtWeigh\logs）
+│  └─ Logging/       … LoggerService（SuperLightLogger ラッパー、%LOCALAPPDATA%\ExtWeigh\logs）
 ├─ ExtWeigh.UI/      … Avalonia 12 + FluentTheme(Dark) + CommunityToolkit.Mvvm + Microsoft.Extensions.DependencyInjection
 └─ ExtWeigh.Tests/   … MSTest（命名: Xxx.test.cs、統合テストは Xxx.Integration.test.cs + TestCategory("Integration")）
 ```
@@ -59,7 +59,7 @@ dotnet test src/ExtWeigh.Tests -c Debug --filter "TestCategory=Integration"    #
 - ログイン必須ページの計測は未対応（cxcx の session 機能相当は将来課題。実装するなら「専用プロファイルに一度手動ログイン → コピーして使い回す」方式）
 - Chrome 137+ の branded ビルドで `--load-extension` が無視される環境がある。その場合は設定タブで Chrome for Testing を指定してもらう（README のトラブルシュート参照）
 - flamegraph の埋め込み（speedscope vendor 同梱）は未実装。`.cpuprofile` を DevTools / speedscope.app で開く運用
-- Velopack の起動フックと Certum SimplySign によるローカルコード署名リリースを導入済み。`scripts/release-local.ps1` と `vava.config.json` が `win-x64` の署名付き Setup.exe / Portable ZIP を生成する。自動更新の配信先は未設定
+- Velopack の起動フックと Certum SimplySign によるローカルコード署名リリースを導入済み。`scripts/release-local.ps1` が `win-x64` の署名付き Setup.exe / Portable ZIP を生成する。自動更新の配信先は未設定
 
 ## ドメイン移行（2026-07 開始・期限 2027/05/31）
 
@@ -70,3 +70,12 @@ dotnet test src/ExtWeigh.Tests -c Debug --filter "TestCategory=Integration"    #
 - `nephilim.jp` の Redirect Rules は `/` だけを 301 する。`releases.*.json` / `*.nupkg` / `*-Setup.exe` は転送せず R2 が配信を続ける。
 - 配信は `extweigh.kagayoi.com`（R2 `extweigh-updates`）。旧 `extweigh.nephilim.jp` は route に併記して残してある。
 - 製品ページの配信は `vps-web/deploy/deploy-lp.ps1` を使う。公開ホスト・更新ファイルの既存経路を維持する。
+
+### ローカルリリースの実行
+
+リポジトリルートで事前確認を行い、失敗時は「署名証明書が見つからないよ。SimplySign Desktop を起動してトークンでログインしてから /vava を再実行してね」。公開依頼時に成功を確認してから実行する。
+
+```powershell
+pwsh -NoProfile -Command 'if (-not (Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -like "CN=Open Source Developer Yuichiro Shinozaki*" -and $_.NotAfter -gt (Get-Date) })) { exit 1 }'
+if ($LASTEXITCODE -eq 0) { pwsh -NoProfile -File scripts/release-local.ps1 } else { throw '署名証明書が見つからないよ。SimplySign Desktop を起動してトークンでログインしてから /vava を再実行してね' }
+```

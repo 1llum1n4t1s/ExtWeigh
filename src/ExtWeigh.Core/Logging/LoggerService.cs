@@ -20,7 +20,7 @@ public enum LogLevel
 
 /// <summary>
 /// SuperLightLogger を使用したログ出力クラス。
-/// %APPDATA%\ExtWeigh\logs にローテーション出力する。
+/// Windows では %LOCALAPPDATA%\ExtWeigh\logs にローテーション出力する。
 /// </summary>
 public static class LoggerService
 {
@@ -32,7 +32,9 @@ public static class LoggerService
 
     /// <summary>ログ出力ディレクトリ</summary>
     private static readonly string LogDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        Environment.GetFolderPath(OperatingSystem.IsWindows()
+            ? Environment.SpecialFolder.LocalApplicationData
+            : Environment.SpecialFolder.ApplicationData),
         "ExtWeigh",
         "logs");
 
@@ -57,6 +59,11 @@ public static class LoggerService
 
         try
         {
+            if (OperatingSystem.IsWindows())
+            {
+                var oldLogs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ExtWeigh", "logs");
+                LegacyLogMigration.Migrate(oldLogs, LogDirectory);
+            }
             Directory.CreateDirectory(LogDirectory);
         }
         catch (Exception ex)
@@ -90,7 +97,7 @@ public static class LoggerService
         });
 
         _logger = LogManager.GetLogger(FilePrefix);
-        CleanupOldLogFiles();
+        CleanupOldLogFiles(LogDirectory);
         Log("Logger initialized", LogLevel.Debug);
     }
 
@@ -128,12 +135,12 @@ public static class LoggerService
     }
 
     /// <summary>保持期間を超えた古いログファイルを削除する</summary>
-    private static void CleanupOldLogFiles()
+    internal static void CleanupOldLogFiles(string directory)
     {
         try
         {
             var cutoffDate = DateTime.Now.Date.AddDays(-RetentionDays);
-            foreach (var file in Directory.GetFiles(LogDirectory, $"{FilePrefix}_*.log"))
+            foreach (var file in Directory.GetFiles(directory, $"{FilePrefix}_*.log"))
             {
                 // ${shortdate} は "2026-07-18" 形式で展開される
                 var fileName = Path.GetFileNameWithoutExtension(file);
